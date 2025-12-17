@@ -24,6 +24,7 @@ dev = [
     "pytest-cov>=4.0.0",
     "mypy>=1.0.0",
     "ruff>=0.1.0",
+    "httpx>=0.24.0",  # For E2E tests with Greenmail REST API
     "pre-commit",
     "detect-secrets",
 ]
