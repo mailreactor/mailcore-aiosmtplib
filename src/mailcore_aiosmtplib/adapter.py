@@ -64,6 +64,15 @@ class AIOSMTPAdapter(SMTPConnection):
         self._smtp = SMTP(hostname=hostname, port=port, use_tls=use_tls, timeout=timeout)
         self._connected = False
 
+    @property
+    def username(self) -> str:
+        """Get SMTP authentication username.
+
+        Returns:
+            Username used for SMTP authentication.
+        """
+        return self._username
+
     async def _ensure_connected(self) -> None:
         """Connect and authenticate if not already connected.
 
