@@ -28,7 +28,7 @@ def smtp_adapter(mock_smtp_client):
     """Create SMTP adapter with mocked aiosmtplib.SMTP."""
     with patch("mailcore_aiosmtplib.adapter.SMTP", return_value=mock_smtp_client):
         adapter = AIOSMTPAdapter(
-            hostname="smtp.example.com",
+            host="smtp.example.com",
             port=465,
             username="user@example.com",
             password="test-password",  # pragma: allowlist secret
@@ -188,7 +188,7 @@ async def test_authentication_error_wrapped(mock_smtp_client):
 
     with patch("mailcore_aiosmtplib.adapter.SMTP", return_value=mock_smtp_client):
         adapter = AIOSMTPAdapter(
-            hostname="smtp.example.com",
+            host="smtp.example.com",
             port=465,
             username="user@example.com",
             password="wrong-password",  # pragma: allowlist secret
@@ -213,7 +213,7 @@ async def test_connection_error_wrapped(mock_smtp_client):
 
     with patch("mailcore_aiosmtplib.adapter.SMTP", return_value=mock_smtp_client):
         adapter = AIOSMTPAdapter(
-            hostname="smtp.example.com",
+            host="smtp.example.com",
             port=465,
             username="user@example.com",
             password="test-password",  # pragma: allowlist secret
@@ -235,7 +235,7 @@ async def test_timeout_error_wrapped(mock_smtp_client):
 
     with patch("mailcore_aiosmtplib.adapter.SMTP", return_value=mock_smtp_client):
         adapter = AIOSMTPAdapter(
-            hostname="smtp.example.com",
+            host="smtp.example.com",
             port=465,
             username="user@example.com",
             password="test-password",  # pragma: allowlist secret

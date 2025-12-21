@@ -38,7 +38,7 @@ pytestmark = pytest.mark.skipif(
 async def smtp_adapter():
     """Create SMTP adapter connected to Greenmail."""
     adapter = AIOSMTPAdapter(
-        hostname="localhost",
+        host="localhost",
         port=3025,
         username="test@example.com",  # Greenmail accepts any credentials
         password="test",  # pragma: allowlist secret

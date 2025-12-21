@@ -21,7 +21,7 @@ class AIOSMTPAdapter(SMTPConnection):
     is natively async.
 
     Args:
-        hostname: SMTP server hostname
+        host: SMTP server hostname
         port: SMTP server port (465 for TLS, 587 for STARTTLS)
         username: SMTP username (usually email address)
         password: SMTP password (app password recommended)
@@ -30,7 +30,7 @@ class AIOSMTPAdapter(SMTPConnection):
 
     Example:
         >>> smtp = AIOSMTPAdapter(
-        ...     hostname='smtp.gmail.com',
+        ...     host='smtp.gmail.com',
         ...     port=465,
         ...     username='user@gmail.com',
         ...     password='app-password',  # pragma: allowlist secret
@@ -47,7 +47,7 @@ class AIOSMTPAdapter(SMTPConnection):
 
     def __init__(
         self,
-        hostname: str,
+        host: str,
         port: int,
         username: str,
         password: str,
@@ -55,13 +55,13 @@ class AIOSMTPAdapter(SMTPConnection):
         timeout: int = 30,
     ) -> None:
         """Initialize SMTP adapter with connection parameters."""
-        self._hostname = hostname
+        self._host = host
         self._port = port
         self._username = username
         self._password = password
         self._use_tls = use_tls
         self._timeout = timeout
-        self._smtp = SMTP(hostname=hostname, port=port, use_tls=use_tls, timeout=timeout)
+        self._smtp = SMTP(hostname=host, port=port, use_tls=use_tls, timeout=timeout)
         self._connected = False
 
     @property
@@ -88,11 +88,11 @@ class AIOSMTPAdapter(SMTPConnection):
                 await self._smtp.login(self._username, self._password)
                 self._connected = True
             except SMTPException as e:
-                raise SMTPError(f"Failed to connect to SMTP server {self._hostname}:{self._port}") from e
+                raise SMTPError(f"Failed to connect to SMTP server {self._host}:{self._port}") from e
             except asyncio.TimeoutError as e:
-                raise SMTPError(f"SMTP server {self._hostname} did not respond within {self._timeout}s") from e
+                raise SMTPError(f"SMTP server {self._host} did not respond within {self._timeout}s") from e
             except ConnectionError as e:
-                raise SMTPError(f"Unable to connect to SMTP server {self._hostname}:{self._port}") from e
+                raise SMTPError(f"Unable to connect to SMTP server {self._host}:{self._port}") from e
 
     async def send_message(
         self,
@@ -209,7 +209,7 @@ class AIOSMTPAdapter(SMTPConnection):
         except asyncio.TimeoutError as e:
             raise SMTPError(f"SMTP server did not respond within {self._timeout}s") from e
         except ConnectionError as e:
-            raise SMTPError(f"Connection lost to SMTP server {self._hostname}:{self._port}") from e
+            raise SMTPError(f"Connection lost to SMTP server {self._host}:{self._port}") from e
 
     async def disconnect(self) -> None:
         """Disconnect from SMTP server gracefully.
