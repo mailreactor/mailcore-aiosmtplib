@@ -51,8 +51,8 @@ repos:
         stages: [pre-commit]
       
       - id: pytest-coverage
-        name: pytest with 60% coverage
-        entry: bash -c '.venv/bin/pytest tests/ --cov=src/mailcore_aiosmtplib --cov-fail-under=0 --cov-report=term-missing:skip-covered'
+        name: pytest with 90% coverage
+        entry: bash -c '.venv/bin/pytest tests/ --cov=src/mailcore_aiosmtplib --cov-fail-under=90 --cov-report=term-missing:skip-covered'
         language: system
         pass_filenames: false
         always_run: true

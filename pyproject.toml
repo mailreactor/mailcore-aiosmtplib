@@ -5,16 +5,29 @@ build-backend = "hatchling.build"
 [project]
 name = "mailcore-aiosmtplib"
 version = "0.1.0"
-description = "aiosmtplib adapter for mailcore - thin wrapper around native async aiosmtplib"
+description = "aiosmtplib adapter for mailcore"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "Mail Reactor Contributors", email = "maintainers@mailreactor.dev"},
+    {name = "Hans Christian v. Stockhausen", email = "hc@vst.io"},
 ]
 dependencies = [
-    "mailcore>=1.0.0,<2.0.0",
+    "mailcore>=0.1.0,<1.0.0",
     "aiosmtplib>=3.0.0",
+]
+keywords = ["mailcore", "smtp", "email", "adapter", "aiosmtplib", "async"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Email",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Framework :: AsyncIO",
 ]
 
 [project.optional-dependencies]
@@ -51,3 +64,7 @@ packages = ["src/mailcore_aiosmtplib"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "e2e: E2E tests against Greenmail SMTP server",
+    "conformance: Conformance tests validating mock vs Greenmail behavior",
+]
