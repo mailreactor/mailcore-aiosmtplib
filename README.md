@@ -1,5 +1,9 @@
 # mailcore-aiosmtplib
 
+[![PyPI](https://img.shields.io/pypi/v/mailcore-aiosmtplib)](https://pypi.org/project/mailcore-aiosmtplib/)
+[![Python Version](https://img.shields.io/pypi/pyversions/mailcore-aiosmtplib)](https://pypi.org/project/mailcore-aiosmtplib/)
+[![License](https://img.shields.io/pypi/l/mailcore-aiosmtplib)](https://github.com/mailreactor/mailcore-aiosmtplib/blob/main/LICENSE)
+
 **aiosmtplib adapter for [mailcore](https://github.com/mailreactor/mailcore)** - thin wrapper around native async aiosmtplib for high-performance SMTP sending.
 
 This adapter enables mailcore to send email using aiosmtplib, providing native async SMTP support with zero blocking.
