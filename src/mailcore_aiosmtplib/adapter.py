@@ -2,6 +2,7 @@
 
 import asyncio
 from email.message import EmailMessage
+from email.utils import make_msgid
 
 from aiosmtplib import SMTP, SMTPException
 from mailcore import (
@@ -148,6 +149,12 @@ class AIOSMTPAdapter(SMTPConnection):
         if references:
             msg["References"] = " ".join(references)
 
+        # Generate Message-ID if not present (RFC 5322 requirement)
+        if "Message-ID" not in msg:
+            # Extract domain from sender email for Message-ID
+            domain = from_.email.split("@")[1] if "@" in from_.email else "localhost"
+            msg["Message-ID"] = make_msgid(domain=domain)
+
         # Set body (text-only, HTML-only, or multipart)
         if body_text and body_html:
             msg.set_content(body_text)
@@ -193,7 +200,7 @@ class AIOSMTPAdapter(SMTPConnection):
                 rejected = {}
 
             return SendResult(
-                message_id=msg["Message-ID"] or "",
+                message_id=str(msg["Message-ID"]),  # Convert header object to string
                 accepted=accepted,
                 rejected=rejected,
             )
