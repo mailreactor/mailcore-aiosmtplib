@@ -23,12 +23,13 @@ class AIOSMTPAdapter(SMTPConnection):
 
     Connection Lifecycle:
         The adapter automatically manages SMTP connection health:
-        - NOOP health check before each send (proactive stale connection detection)
+        - NOOP health check before each send (5s timeout for fast stale detection)
         - Automatic reconnection if health check fails
         - Automatic retry on timeout errors (451, 421, timeout)
         - Graceful cleanup of dead connections
 
         You don't need to manage connections manually - the adapter handles it transparently.
+        Stale connections are detected within 5 seconds instead of waiting for full timeout.
 
     Args:
         host: SMTP server hostname
@@ -97,7 +98,9 @@ class AIOSMTPAdapter(SMTPConnection):
         # Check if existing connection is alive
         if self._connected:
             try:
-                await self._smtp.noop()
+                # Use short timeout (5s) for health check - fail fast on stale connections
+                # Full timeout (self._timeout) is for actual SMTP operations
+                await asyncio.wait_for(self._smtp.noop(), timeout=5)
                 return  # Connection is healthy
             except Exception:
                 # Connection dead - will reconnect below
