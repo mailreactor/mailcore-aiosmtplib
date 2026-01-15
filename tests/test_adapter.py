@@ -20,6 +20,8 @@ def mock_smtp_client():
     client.login = AsyncMock(return_value=None)
     client.send_message = AsyncMock(return_value=({"recipient@example.com": (250, "OK")}, "OK"))
     client.quit = AsyncMock(return_value=None)
+    client.noop = AsyncMock(return_value=None)  # Health check command
+    client.supports_extension = Mock(return_value=False)  # No DSN support by default
     return client
 
 
@@ -381,3 +383,136 @@ async def test_attachment_content_type_parsing(smtp_adapter, mock_smtp_client):
         # Verify maintype/subtype passed to add_attachment
         call_args = mock_smtp_client.send_message.call_args[0][0]
         assert call_args.is_multipart()
+
+
+@pytest.mark.asyncio
+async def test_priority_headers_all_levels(smtp_adapter, mock_smtp_client):
+    """Test priority header mapping for all priority levels."""
+    priority_tests = [
+        ("highest", "1", "high", "urgent"),
+        ("high", "2", "high", "urgent"),
+        ("normal", "3", "normal", "normal"),
+        ("low", "4", "low", "non-urgent"),
+        ("lowest", "5", "low", "non-urgent"),
+    ]
+
+    for priority, x_priority, importance, priority_header in priority_tests:
+        await smtp_adapter.send_message(
+            from_=EmailAddress(email="sender@example.com"),
+            to=[EmailAddress(email="recipient@example.com")],
+            subject="Priority Test",
+            body_text="Test",
+            priority=priority,
+        )
+
+        call_args = mock_smtp_client.send_message.call_args[0][0]
+        assert call_args["X-Priority"] == x_priority
+        assert call_args["Importance"] == importance
+        assert call_args["Priority"] == priority_header
+
+
+@pytest.mark.asyncio
+async def test_priority_headers_not_set_when_none(smtp_adapter, mock_smtp_client):
+    """Test that priority headers are not set when priority is None."""
+    await smtp_adapter.send_message(
+        from_=EmailAddress(email="sender@example.com"),
+        to=[EmailAddress(email="recipient@example.com")],
+        subject="No Priority",
+        body_text="Test",
+        priority=None,
+    )
+
+    call_args = mock_smtp_client.send_message.call_args[0][0]
+    assert "X-Priority" not in call_args
+    assert "Importance" not in call_args
+    # Note: "Priority" might exist as header key, but won't have our mapped value
+
+
+@pytest.mark.asyncio
+async def test_dsn_server_not_supported_error(smtp_adapter, mock_smtp_client):
+    """Test error when DSN requested but server doesn't support it."""
+    # Configure mock to report no DSN support
+    mock_smtp_client.supports_extension = Mock(return_value=False)
+
+    with pytest.raises(SMTPError) as exc_info:
+        await smtp_adapter.send_message(
+            from_=EmailAddress(email="sender@example.com"),
+            to=[EmailAddress(email="recipient@example.com")],
+            subject="Test",
+            body_text="Test",
+            notify="SUCCESS,FAILURE,DELAY",
+        )
+
+    # Verify clear error message
+    assert "Delivery receipt requested" in str(exc_info.value)
+    assert "does not support DSN" in str(exc_info.value)
+    assert "RFC 3461" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_dsn_parameters_ret_and_envid(smtp_adapter, mock_smtp_client):
+    """Test DSN RET and ENVID parameters are passed correctly."""
+    # Configure mock to support DSN
+    mock_smtp_client.supports_extension = Mock(return_value=True)
+
+    await smtp_adapter.send_message(
+        from_=EmailAddress(email="sender@example.com"),
+        to=[EmailAddress(email="recipient@example.com")],
+        subject="Test",
+        body_text="Test",
+        notify="SUCCESS,FAILURE,DELAY",
+        dsn_return="full",
+        dsn_envelope_id="tracking-12345",
+    )
+
+    # Verify mail_options and rcpt_options were passed
+    call_kwargs = mock_smtp_client.send_message.call_args[1]
+    assert "mail_options" in call_kwargs
+    assert "rcpt_options" in call_kwargs
+
+    mail_options = call_kwargs["mail_options"]
+    rcpt_options = call_kwargs["rcpt_options"]
+
+    # Verify RET and ENVID in mail_options
+    assert "RET=FULL" in mail_options
+    assert "ENVID=tracking-12345" in mail_options
+
+    # Verify NOTIFY in rcpt_options
+    assert "NOTIFY=SUCCESS,FAILURE,DELAY" in rcpt_options
+
+
+@pytest.mark.asyncio
+async def test_dsn_parameters_ret_headers(smtp_adapter, mock_smtp_client):
+    """Test DSN RET parameter with 'headers' value."""
+    mock_smtp_client.supports_extension = Mock(return_value=True)
+
+    await smtp_adapter.send_message(
+        from_=EmailAddress(email="sender@example.com"),
+        to=[EmailAddress(email="recipient@example.com")],
+        subject="Test",
+        body_text="Test",
+        notify="SUCCESS",
+        dsn_return="headers",
+    )
+
+    call_kwargs = mock_smtp_client.send_message.call_args[1]
+    mail_options = call_kwargs["mail_options"]
+
+    # Verify RET=HDRS (not HEADERS)
+    assert "RET=HDRS" in mail_options
+
+
+@pytest.mark.asyncio
+async def test_disconnect_error_handling(smtp_adapter, mock_smtp_client):
+    """Test disconnect handles errors gracefully."""
+    # Connect first
+    await smtp_adapter._ensure_connected()
+
+    # Configure quit to raise error
+    mock_smtp_client.quit = AsyncMock(side_effect=Exception("Connection already closed"))
+
+    # Should not raise despite quit error
+    await smtp_adapter.disconnect()
+
+    # Verify _connected flag is cleared
+    assert not smtp_adapter._connected

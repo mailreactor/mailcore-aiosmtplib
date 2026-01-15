@@ -21,6 +21,15 @@ class AIOSMTPAdapter(SMTPConnection):
     to SMTP protocol via stdlib EmailMessage. No ThreadPoolExecutor needed - aiosmtplib
     is natively async.
 
+    Connection Lifecycle:
+        The adapter automatically manages SMTP connection health:
+        - NOOP health check before each send (proactive stale connection detection)
+        - Automatic reconnection if health check fails
+        - Automatic retry on timeout errors (451, 421, timeout)
+        - Graceful cleanup of dead connections
+
+        You don't need to manage connections manually - the adapter handles it transparently.
+
     Args:
         host: SMTP server hostname
         port: SMTP server port (465 for TLS, 587 for STARTTLS)
@@ -77,23 +86,38 @@ class AIOSMTPAdapter(SMTPConnection):
     async def _ensure_connected(self) -> None:
         """Connect and authenticate if not already connected.
 
-        This method is idempotent - safe to call multiple times. Only
-        connects once, subsequent calls are no-op.
+        Checks connection health with NOOP command. If connection is stale
+        or dead, reconnects automatically.
+
+        This method is idempotent - safe to call multiple times.
 
         Raises:
             SMTPError: Connection or authentication failure with clear message
         """
-        if not self._connected:
+        # Check if existing connection is alive
+        if self._connected:
             try:
-                await self._smtp.connect()
-                await self._smtp.login(self._username, self._password)
-                self._connected = True
-            except SMTPException as e:
-                raise SMTPError(f"Failed to connect to SMTP server {self._host}:{self._port}") from e
-            except asyncio.TimeoutError as e:
-                raise SMTPError(f"SMTP server {self._host} did not respond within {self._timeout}s") from e
-            except ConnectionError as e:
-                raise SMTPError(f"Unable to connect to SMTP server {self._host}:{self._port}") from e
+                await self._smtp.noop()
+                return  # Connection is healthy
+            except Exception:
+                # Connection dead - will reconnect below
+                self._connected = False
+                try:
+                    await self._smtp.quit()
+                except Exception:
+                    pass  # Already dead, ignore cleanup errors
+
+        # Create new connection
+        try:
+            await self._smtp.connect()
+            await self._smtp.login(self._username, self._password)
+            self._connected = True
+        except SMTPException as e:
+            raise SMTPError(f"Failed to connect to SMTP server {self._host}:{self._port}") from e
+        except asyncio.TimeoutError as e:
+            raise SMTPError(f"SMTP server {self._host} did not respond within {self._timeout}s") from e
+        except ConnectionError as e:
+            raise SMTPError(f"Unable to connect to SMTP server {self._host}:{self._port}") from e
 
     async def send_message(
         self,
@@ -107,6 +131,13 @@ class AIOSMTPAdapter(SMTPConnection):
         attachments: list[Attachment] | None = None,
         in_reply_to: str | None = None,
         references: list[str] | None = None,
+        reply_to: list[EmailAddress] | None = None,
+        sender: EmailAddress | None = None,
+        priority: str | None = None,
+        disposition_notification_to: str | None = None,
+        notify: str | None = None,
+        dsn_return: str | None = None,
+        dsn_envelope_id: str | None = None,
     ) -> SendResult:
         """Send email message via SMTP.
 
@@ -124,12 +155,23 @@ class AIOSMTPAdapter(SMTPConnection):
             attachments: List of attachments (optional, content fetched during send)
             in_reply_to: Message-ID of email being replied to (optional)
             references: List of Message-IDs for threading (optional)
+            reply_to: Reply-To addresses (optional, RFC 5322)
+            sender: Sender header (optional, RFC 5322 Section 3.6.2)
+            priority: Priority level string (optional, 'highest'/'high'/'normal'/'low'/'lowest')
+            disposition_notification_to: Read receipt email (optional, RFC 3798 MDN)
+            notify: Delivery receipt notification types (optional, RFC 3461 DSN)
+            dsn_return: DSN return content (optional, "full" or "headers" - what to include in bounces)
+            dsn_envelope_id: DSN envelope ID (optional, tracking identifier for bounces)
 
         Returns:
             SendResult with message_id and recipient status
 
         Raises:
             SMTPError: Send failure with clear message and exception chaining
+
+        Note:
+            DSN notify parameter requires server support (RFC 3461). Not all SMTP
+            servers support DSN. If server doesn't support, parameter is silently ignored.
         """
         await self._ensure_connected()
 
@@ -148,6 +190,31 @@ class AIOSMTPAdapter(SMTPConnection):
             msg["In-Reply-To"] = in_reply_to
         if references:
             msg["References"] = " ".join(references)
+
+        # New headers (Story 3.34)
+        if reply_to:
+            msg["Reply-To"] = ", ".join(addr.to_rfc5322() for addr in reply_to)
+
+        if sender:
+            msg["Sender"] = sender.to_rfc5322()
+
+        if disposition_notification_to:
+            msg["Disposition-Notification-To"] = disposition_notification_to
+
+        if priority:
+            # Map priority to three header formats for maximum client compatibility
+            priority_map = {
+                "highest": {"x_priority": "1", "importance": "high", "priority": "urgent"},
+                "high": {"x_priority": "2", "importance": "high", "priority": "urgent"},
+                "normal": {"x_priority": "3", "importance": "normal", "priority": "normal"},
+                "low": {"x_priority": "4", "importance": "low", "priority": "non-urgent"},
+                "lowest": {"x_priority": "5", "importance": "low", "priority": "non-urgent"},
+            }
+            if priority in priority_map:
+                p = priority_map[priority]
+                msg["X-Priority"] = p["x_priority"]
+                msg["Importance"] = p["importance"]
+                msg["Priority"] = p["priority"]
 
         # Generate Message-ID if not present (RFC 5322 requirement)
         if "Message-ID" not in msg:
@@ -180,7 +247,67 @@ class AIOSMTPAdapter(SMTPConnection):
 
         # Send via SMTP
         try:
-            response = await self._smtp.send_message(msg)
+            # Check DSN support if delivery receipt requested (RFC 3461)
+            if notify or dsn_return or dsn_envelope_id:
+                if not self._smtp.supports_extension("DSN"):
+                    raise SMTPError(
+                        "Delivery receipt requested but SMTP server does not support DSN (RFC 3461). "
+                        "The server must advertise DSN extension in EHLO response. "
+                        "Either the server doesn't support DSN or it's disabled. "
+                        "Remove request_delivery_receipt() call or use a server with DSN support."
+                    )
+
+            # Build DSN options (RFC 3461)
+            # MAIL FROM options: RET, ENVID
+            mail_options = []
+            if dsn_return:
+                ret_value = "FULL" if dsn_return == "full" else "HDRS"
+                mail_options.append(f"RET={ret_value}")
+            if dsn_envelope_id:
+                mail_options.append(f"ENVID={dsn_envelope_id}")
+
+            # RCPT TO options: NOTIFY
+            rcpt_options = []
+            if notify:
+                rcpt_options.append(f"NOTIFY={notify}")
+
+            # Send message with automatic retry on stale connection
+            try:
+                response = await self._smtp.send_message(
+                    msg,
+                    mail_options=mail_options if mail_options else None,
+                    rcpt_options=rcpt_options if rcpt_options else None,
+                )
+            except SMTPException as send_error:
+                # Check if it's a timeout/stale connection error
+                error_str = str(send_error).lower()
+                error_code = str(send_error)
+                is_timeout = (
+                    "timeout" in error_str
+                    or "451" in error_code  # Temporary failure
+                    or "421" in error_code  # Service closing transmission
+                )
+
+                if is_timeout:
+                    # Connection became stale - reconnect and retry once
+                    self._connected = False
+                    try:
+                        await self._smtp.quit()
+                    except Exception:
+                        pass  # Already dead
+
+                    await self._ensure_connected()
+
+                    # Retry send with fresh connection
+                    response = await self._smtp.send_message(
+                        msg,
+                        mail_options=mail_options if mail_options else None,
+                        rcpt_options=rcpt_options if rcpt_options else None,
+                    )
+                else:
+                    # Not a timeout error - propagate immediately
+                    raise
+
             # aiosmtplib returns tuple: (response_dict, response_str)
             # response_dict: {recipient: SMTPResponse(code, message)} or {} if all succeeded
             result_dict = response[0] if isinstance(response, tuple) else response

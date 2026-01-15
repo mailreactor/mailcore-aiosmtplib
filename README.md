@@ -8,6 +8,13 @@
 
 This adapter enables mailcore to send email using aiosmtplib, providing native async SMTP support with zero blocking.
 
+## Features
+
+- **Native async** - No ThreadPoolExecutor, pure async/await
+- **Automatic connection management** - NOOP health checks, auto-reconnection, retry on timeout
+- **Full mailcore protocol support** - All standard email headers, attachments, DSN (where supported)
+- **Zero dependencies** beyond aiosmtplib and mailcore
+
 ## Installation
 
 ```bash
